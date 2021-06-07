@@ -10,7 +10,7 @@ It for example allows you to
   * Modify final fields.
   * Create new enum instances. (However you must be very careful with this, it can break much.)
   * Mark modules open / automatic / synthetic or remove these flags from modules
-  * Add opens and exports for any module, not just for your own. (Also works with JD modules like `java.base`)
+  * Add opens and exports for any module, not just for your own. (Also works with JDK modules like `java.base`)
   * Add reads for any module, not just your own module.
 
 To check whether your java installation supports all features of NativeReflector, you can just run the module: `java -p NativeReflector.jar -m nativereflector.main`
