@@ -1,0 +1,170 @@
+import java.nio.file.Files 
+
+plugins {
+    id 'java-library'
+    id 'application'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    
+}
+
+tasks.withType(JavaCompile).each {
+//    it.options.compilerArgs.add('--enable-preview')
+}
+
+application {
+    mainModule = 'nativereflector.main'
+    mainClass = 'io.github.noeppi_noeppi.tools.nativereflector.internal.NativeReflector'
+}
+
+sourceSets {
+    c.java.srcDirs = []
+    c.resources.srcDirs = ['src/native/c', 'src/native/headers']
+}
+
+compileJava {
+    options.compilerArgs += ['-h', file('src/native/headers/java').toPath().toAbsolutePath().normalize().toString()]
+
+    doFirst {
+        if (!file('src/native/headers/java').exists()) {
+            Files.createDirectories(file('src/native/headers/java').toPath())
+        }
+    }
+}
+
+clean {
+    delete file('src/native/cmake-build-debug')
+    doLast {
+        if (file('src/native/headers/java').exists()) {
+            Files.walk(file('src/native/headers/java').toPath())
+                    .filter { p -> Files.isRegularFile(p) && p.getFileName().toString().endsWith(".h") }
+                    .forEach { p -> Files.delete(p) }
+        }
+    }
+}
+
+javadoc {
+    destinationDir file('docs/javadoc')
+    inputs.property("moduleName", [ 'nativereflector.main' ])
+    doFirst {
+        options.addStringOption('Xdoclint:none', '-quiet')
+    }
+}
+build.dependsOn javadoc
+
+run {
+    systemProperties['nativereflector.load_natives_local'] = 'true'
+}
+
+nativeTarget('lin32', project.linux_compile_target32, '-m32 ' + project.linux_args)
+nativeTarget('lin64', project.linux_compile_target64, '-m64 ' + project.linux_args)
+nativeTarget('mac32', project.apple_compile_target32, '-m32 ' + project.apple_args)
+nativeTarget('mac64', project.apple_compile_target64, '-m64 ' + project.apple_args)
+nativeTarget('win32', project.windows_compile_target32, '-m32 ' + project.windows_args)
+nativeTarget('win64', project.windows_compile_target64, '-m64 ' + project.windows_args)
+
+private nativeTarget(String id, String compiler, String bits) {
+    tasks.register("prepareCmake${id.capitalize()}", PrepareCMakeTask, id, compiler, bits).configure(){ it.dependsOn compileJava }
+    tasks.register("buildCmake${id.capitalize()}", BuildCMakeTask, id, compiler, bits).configure(){ it.dependsOn tasks.getByName("prepareCmake${id.capitalize()}") }
+    tasks.register("buildNative${id.capitalize()}", CompileNativeTask, id).configure(){ it.dependsOn tasks.getByName("buildCmake${id.capitalize()}") }
+    project.processResources.finalizedBy(tasks.getByName("buildNative${id.capitalize()}"))
+}
+
+abstract class CMakeTask extends Exec {
+    
+    public final String id
+    public final String compiler
+    public final String compilerFlags
+    public final String fileSuffix
+
+    CMakeTask(String id, String compiler, String compilerFlags) {
+        this.id = id
+        this.compiler = compiler
+        this.compilerFlags = compilerFlags
+        if (this.id.startsWith("win")) {
+            this.fileSuffix = '.dll'
+        } else if (this.id.startsWith("mac")) {
+            this.fileSuffix = '.dylib'
+        } else {
+            this.fileSuffix = '.so'
+        }
+        standardOutput System.out
+        errorOutput System.out
+        workingDir project.file('.')
+    }
+    
+    protected List<String> baseCommand() {
+        return [
+                'cmake',
+                "-DCMAKE_C_COMPILER=${compiler + '-gcc'}",
+                "-DCMAKE_CXX_COMPILER=${compiler + '-g++'}",
+                "-DCOMPILER_FLAGS=${this.compilerFlags}",
+                "-DTARGET_ID=${id}",
+                "-DJAVA_HOME=${System.getProperty('java.home')}",
+                "-DFILE_SUFFIX=${this.fileSuffix}"
+        ]
+    }
+    
+    protected String buildPath(String name) {
+        java.nio.file.Path path = project.file('build').toPath().resolve('native').resolve(this.id).resolve(name)
+        if (!Files.isDirectory(path)) {
+            Files.createDirectories(path)
+        }
+        return path.toAbsolutePath().normalize().toString()
+    }
+    
+    protected static String quote(String str) {
+        // Windows is weird
+        if (System.getProperty('os.name').toLowerCase().contains('win')) {
+            return '"' + str.toString()
+                    .replace('\\', '\\\\') + '"'
+                    .replace('"', '\\"')
+                    .replace(' ', '\\ ') + '"'
+        } else {
+            return str.toString().replace(' ', '\\ ')
+        }
+    }
+}
+
+class PrepareCMakeTask extends CMakeTask {
+    
+    @javax.inject.Inject
+    PrepareCMakeTask(String id, String compiler, String compilerFlags) {
+        super(id, compiler, compilerFlags)
+        commandLine(baseCommand() + [
+                quote("-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=${project.file('build/resources/main').toPath().toAbsolutePath().normalize().toString()}"),
+                quote("-B${buildPath('ninja')}"),
+                quote("-H${project.file('src/native').toPath().toAbsolutePath().normalize().toString()}"),
+                '-G', 'Ninja'
+        ])
+    }
+}
+
+abstract class BuildCMakeTask extends CMakeTask {
+
+    @javax.inject.Inject
+    BuildCMakeTask(String id, String compiler, String compilerFlags) {
+        super(id, compiler, compilerFlags)
+        commandLine(baseCommand() + [
+                quote("-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=${project.file('build/resources/main').toPath().toAbsolutePath().normalize().toString()}"),
+                '-G', 'Ninja',
+                '--build', quote(buildPath('ninja'))
+        ])
+    }
+}
+
+abstract class CompileNativeTask extends Exec {
+    
+    @javax.inject.Inject
+    CompileNativeTask(String id) {
+        commandLine('ninja')
+        standardOutput System.out
+        errorOutput System.out
+        workingDir project.file('build').toPath().resolve('native').resolve(id).resolve('ninja').toFile()
+    }
+}
