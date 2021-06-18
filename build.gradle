@@ -122,7 +122,7 @@ abstract class CMakeTask extends Exec {
         // Windows is weird
         if (System.getProperty('os.name').toLowerCase().contains('win')) {
             return '"' + str.toString()
-                    .replace('\\', '\\\\') + '"'
+                    .replace('\\', '\\\\')
                     .replace('"', '\\"')
                     .replace(' ', '\\ ') + '"'
         } else {

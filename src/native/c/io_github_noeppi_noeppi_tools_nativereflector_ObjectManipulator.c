@@ -151,20 +151,25 @@ JNIEXPORT jobject JNICALL Java_io_github_noeppi_1noeppi_tools_nativereflector_Ob
                 }
                 if (notFailed == JNI_TRUE) {
                     instance = (*env)->AllocObject(env, cls);
-                    jfieldID ordinalField = (*env)->GetFieldID(env, cls, "ordinal", "I");
-                    jfieldID nameField = (*env)->GetFieldID(env, cls, "name", "Ljava/lang/String;");
-                    if (ordinalField == NULL || nameField == NULL) {
-                        throwJ(env, "Can't create enum constant: name or ordinal field not found.");
+                    jclass classEnum = (*env)->FindClass(env, "java/lang/Enum");
+                    if (classEnum == NULL) {
+                        throwJ(env, "Can't create enum constant: class java/lang/Enum not found.");
                     } else {
-                        (*env)->SetIntField(env, instance, ordinalField, ordinal);
-                        (*env)->SetObjectField(env, instance, nameField, name);
-                        jarray newValues = (*env)->NewObjectArray(env, ordinal + 1, cls, NULL);
-                        for (int i = 0; i < ordinal; i++) {
-                            (*env)->SetObjectArrayElement(env, newValues, i, (*env)->GetObjectArrayElement(env, values, i));
+                        jfieldID ordinalField = (*env)->GetFieldID(env, classEnum, "ordinal", "I");
+                        jfieldID nameField = (*env)->GetFieldID(env, classEnum, "name", "Ljava/lang/String;");
+                        if (ordinalField == NULL || nameField == NULL) {
+                            throwJ(env, "Can't create enum constant: name or ordinal field not found.");
+                        } else {
+                            (*env)->SetIntField(env, instance, ordinalField, ordinal);
+                            (*env)->SetObjectField(env, instance, nameField, name);
+                            jarray newValues = (*env)->NewObjectArray(env, ordinal + 1, cls, NULL);
+                            for (int i = 0; i < ordinal; i++) {
+                                (*env)->SetObjectArrayElement(env, newValues, i, (*env)->GetObjectArrayElement(env, values, i));
+                            }
+                            (*env)->SetObjectArrayElement(env, newValues, ordinal, instance);
+                            (*env)->SetStaticObjectField(env, cls, valuesField, newValues);
+                            return instance;
                         }
-                        (*env)->SetObjectArrayElement(env, newValues, ordinal, instance);
-                        (*env)->SetStaticObjectField(env, cls, valuesField, newValues);
-                        return instance;
                     }
                 }
             }
